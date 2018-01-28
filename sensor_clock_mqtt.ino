@@ -212,7 +212,6 @@ void getCo2Data() {
 }
 
 void publishMqtt(String pubTopic, String payload) {
-  /*
   if (mqttClient.connected()){
     Serial.print("Sending payload: ");
     Serial.print(payload);
@@ -236,13 +235,15 @@ void publishMqtt(String pubTopic, String payload) {
       restart();
     }
   } 
-  */     
 }
 
 void showTime() {
   int hours = hour();
   int minutes = minute();
 
+  if (hours > 12) {
+    hours -= 12;
+  }
   displayTime(0, hours / 10);
   displayTime(1, (hours - ((hours / 10) * 10)));
     

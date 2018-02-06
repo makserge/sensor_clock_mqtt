@@ -19,9 +19,9 @@
 const char* WIFI_SSID = "";
 const char* WIFI_PASSWD = "";
 
-const int MAX_DIN_PIN = 2;
-const int MAX_CS_PIN = 16;
-const int MAX_CLOCK_PIN = 4;
+const byte MAX_DIN_PIN = 2;
+const byte MAX_CS_PIN = 16;
+const byte MAX_CLOCK_PIN = 4;
 
 const byte I2C_SDA = 12;
 const byte I2C_SCL = 5;
@@ -145,13 +145,8 @@ time_t getNTPtime() {
 unsigned long getFromNTP() {
   udp.begin(NTP_CLIENT_PORT);
   if(!WiFi.hostByName(NTP_SERVER, ntpServerIP)) {
-    Serial.println("DNS lookup failed.");
-    return 0UL;
+     return 0UL;
   }
-  Serial.print("sending NTP packet to ");
-  Serial.print(NTP_SERVER);
-  Serial.print(" ");
-  Serial.println(ntpServerIP);
   memset(ntpPacketBuffer, 0, NTP_PACKET_SIZE);
   ntpPacketBuffer[0] = 0b11100011;
   ntpPacketBuffer[1] = 0;
@@ -166,13 +161,11 @@ unsigned long getFromNTP() {
   udp.write(ntpPacketBuffer, NTP_PACKET_SIZE);
   udp.endPacket();
   
-   // wait to see if a reply is available
-  delay(1000);
+  delay(3000);
   int cb = udp.parsePacket();
   if (!cb) {
     udp.flush();
     udp.stop();
-    Serial.println("no packet yet");
     return 0UL;
   }
   udp.read(ntpPacketBuffer, NTP_PACKET_SIZE);
@@ -185,50 +178,57 @@ unsigned long getFromNTP() {
 }
 
 void waitForWifiConnection() {
-  Serial.print("Connecting");
   int retries = 0;
   while (WiFi.status() != WL_CONNECTED && (retries < MAX_WIFI_CONNECT_DELAY)) {
     retries++;
     delay(500);
-    Serial.print(".");
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-  }
-  else {
-    restart();
+   }
+  if (WiFi.status() != WL_CONNECTED) {
+   restart();
   }
 }
 
+int readCo2Sensor() {
+  byte command[] = {0xFE, 0X44, 0X00, 0X08, 0X02, 0X9F, 0X25};
+  byte response[] = {0,0,0,0,0,0,0};
+  
+  while (!Serial.available()) {
+    Serial.write(command, 7);
+    delay(50);
+  }
+  
+  byte timeout = 0;
+  while (Serial.available() < 7 ) {
+    timeout++;  
+    if (timeout > 10) {
+        while(Serial.available())
+          Serial.read();
+          break;
+    }
+    delay(50);
+  }
+  for (int i = 0; i < 7; i++) {
+    response[i] = Serial.read();
+  }
+  return response[3] * 256 + response[4];
+}
+
 void getCo2Data() {
-  int ppm = 800;
+  int co2 = readCo2Sensor();
   String payload = "{\"level\": ";
-  payload += ppm;
+  payload += co2;
   payload += "}";
   publishMqtt(MQTT_CO2_TOPIC, payload);
 }
 
 void publishMqtt(String pubTopic, String payload) {
   if (mqttClient.connected()){
-    Serial.print("Sending payload: ");
-    Serial.print(payload);
-    Serial.println();
-    Serial.print("to topic: ");
-    Serial.println(pubTopic);
-    if (mqttClient.publish(pubTopic, (char*) payload.c_str())) {
-      Serial.println("MQTT Publish OK");
-    }
-    else {
+    if (!mqttClient.publish(pubTopic, (char*) payload.c_str())) {
       restart();
     }
   }
   else {
-    Serial.println("Connecting to MQTT broker ");
     if (mqttClient.connect(MQTT::Connect(MQTT_CLIENT).set_auth(MQTT_USER, MQTT_PASS))) {
-      Serial.println("Connected to MQTT broker");
       publishMqtt(pubTopic, payload);
     }
     else {
@@ -255,7 +255,6 @@ void showTime() {
 }
 
 void restart() {
-  Serial.println("Will reset and try again...");
   //abort();
 }
 
@@ -280,10 +279,6 @@ void readLightLevel() {
   if (level != lastLightLevel) {
     lastLightLevel = level;
 
-    Serial.print("Light: ");
-    Serial.print(level);
-    Serial.println(" lx");
-
     byte brightness = level > NIGHT_MODE_CLOCK_LUX_LEVEL ? MAX_CLOCK_BRIGHTNESS : MIN_CLOCK_BRIGHTNESS;
     ledDisp.setIntensity(0, brightness);
     ledDisp.setIntensity(1, brightness);
@@ -304,9 +299,6 @@ void readMotionSensor() {
   if (sensorState != lastMotionSensorState) {
     lastMotionSensorState = sensorState;
     
-    Serial.print("Motion sensor state: ");
-    Serial.println(sensorState);
-    
     String payload = "{\"state\": ";
     payload += sensorState;
     payload += "}";
@@ -325,14 +317,17 @@ void ledDisplayInit() {
   ledDisp.clearDisplay(1);
 }
 
+void co2SensorInit() {
+  Serial.begin(9600); 
+}
+
 void setup() {
   Wire.begin(I2C_SDA, I2C_SCL);
   bh1750Init();
   motionSensorInit();
   ledDisplayInit();
+  co2SensorInit();
   
-  Serial.begin(115200);
-
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWD);
   
